@@ -50,15 +50,55 @@ cursor.execute("""
     )
 """)
 
-# Insert initial data
-cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)", 
+# Notes table for the notes app.
+# We keep timestamps in ISO-8601 UTC-ish format via SQLite's datetime('now').
+# `updated_at` is maintained via trigger on UPDATE.
+cursor.execute("""
+    CREATE TABLE IF NOT EXISTS notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+""")
+
+# Ensure updated_at is automatically maintained.
+cursor.execute("""
+    CREATE TRIGGER IF NOT EXISTS notes_set_updated_at
+    AFTER UPDATE ON notes
+    FOR EACH ROW
+    BEGIN
+        UPDATE notes
+        SET updated_at = datetime('now')
+        WHERE id = NEW.id;
+    END;
+""")
+
+# Insert initial metadata (idempotent via INSERT OR REPLACE)
+cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)",
                ("project_name", "database"))
-cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)", 
+cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)",
                ("version", "0.1.0"))
-cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)", 
+cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)",
                ("author", "John Doe"))
-cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)", 
+cursor.execute("INSERT OR REPLACE INTO app_info (key, value) VALUES (?, ?)",
                ("description", ""))
+
+# Seed notes only if table is empty (safe to re-run init_db.py)
+cursor.execute("SELECT COUNT(*) FROM notes")
+notes_count = cursor.fetchone()[0]
+if notes_count == 0:
+    seed_notes = [
+        ("Welcome", "This is your first note. You can edit or delete it."),
+        ("Tips", "Use the editor to create notes with a title and content."),
+        ("About", "Notes are stored in SQLite (myapp.db)."),
+    ]
+    for title, content in seed_notes:
+        cursor.execute(
+            "INSERT INTO notes (title, content) VALUES (?, ?)",
+            (title, content)
+        )
 
 conn.commit()
 
@@ -68,6 +108,9 @@ table_count = cursor.fetchone()[0]
 
 cursor.execute("SELECT COUNT(*) FROM app_info")
 record_count = cursor.fetchone()[0]
+
+cursor.execute("SELECT COUNT(*) FROM notes")
+notes_record_count = cursor.fetchone()[0]
 
 conn.close()
 
@@ -116,6 +159,7 @@ print("")
 print("Database statistics:")
 print(f"  Tables: {table_count}")
 print(f"  App info records: {record_count}")
+print(f"  Notes records: {notes_record_count}")
 
 # If sqlite3 CLI is available, show how to use it
 try:
